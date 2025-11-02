@@ -23,9 +23,10 @@ services:
       timeout: 5s
       retries: 5
 
-  phaseid:
+  phaseid-api:
     build: .
-    container_name: phaseid-app
+    image: ${PHASEID_IMAGE:-phaseid/app:latest}
+    container_name: phaseid-api
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +37,10 @@ services:
       DATABASE_USER: ${POSTGRES_USER:-phaseid}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phaseid}
       OUTPUT_DIR: /outputs
+      INPUT_ROOT: /app
+      PHASE_LIBRARY_PATH: /app/config/reference_phases.json
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
     volumes:
       - ./config:/app/config:ro
       - ./docs:/app/docs:ro
@@ -44,7 +49,7 @@ services:
       - "${PHASEID_PORT:-8000}:8000"
 
   cod-loader:
-    build: .
+    image: ${PHASEID_IMAGE:-phaseid/app:latest}
     container_name: phaseid-cod-loader
     depends_on:
       db:
@@ -58,6 +63,7 @@ services:
     volumes:
       - ./db_raw:/app/db_raw:ro
     entrypoint: ["python", "scripts/load_cod.py"]
+    profiles: [loader]
     command:
       [
         "--sqlite-path",

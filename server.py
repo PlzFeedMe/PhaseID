@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 
 import main
 
+INPUT_ROOT = Path(os.getenv("INPUT_ROOT", ".")).resolve()
+OUTPUT_DIR_ENV = Path(os.getenv("OUTPUT_DIR", "outputs")).resolve()
+PHASE_LIBRARY_ENV = os.getenv("PHASE_LIBRARY_PATH")
+
 app = FastAPI(title="PhaseID MCP Server", version="1.0.0")
 
 
@@ -36,7 +40,12 @@ def health() -> Dict[str, str]:
 @app.post("/analyze", response_model=AnalyzeResponse, summary="Run phase identification")
 def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     try:
-        input_paths = [Path(path) for path in request.input_files]
+        input_paths = []
+        for raw in request.input_files:
+            path = Path(raw)
+            if not path.is_absolute():
+                path = (INPUT_ROOT / path).resolve()
+            input_paths.append(path)
     except Exception as exc:  # pragma: no cover - validation guard
         raise HTTPException(status_code=400, detail=f"Invalid input file path: {exc}") from exc
 
@@ -44,10 +53,15 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
         if not path.exists():
             raise HTTPException(status_code=404, detail=f"Input file not found: {path}")
 
-    output_dir = Path(request.output_dir or os.getenv("OUTPUT_DIR", "outputs"))
+    output_dir_raw = request.output_dir or os.getenv("OUTPUT_DIR")
+    output_dir = Path(output_dir_raw).resolve() if output_dir_raw else OUTPUT_DIR_ENV
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    phase_library_path = Path(request.phase_library) if request.phase_library else None
+    phase_library_path = None
+    if request.phase_library:
+        phase_library_path = Path(request.phase_library).resolve()
+    elif PHASE_LIBRARY_ENV:
+        phase_library_path = Path(PHASE_LIBRARY_ENV).resolve()
 
     try:
         result = main.run_analysis(
@@ -72,6 +86,6 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
 if __name__ == "__main__":  # pragma: no cover - manual launch
     import uvicorn
 
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("APP_HOST", os.getenv("HOST", "0.0.0.0"))
+    port = int(os.getenv("APP_PORT", os.getenv("PORT", "8000")))
     uvicorn.run("server:app", host=host, port=port, log_level="info")

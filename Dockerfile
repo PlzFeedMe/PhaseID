@@ -16,4 +16,4 @@ RUN mkdir -p ${OUTPUT_DIR}
 
 EXPOSE 8000
 
-ENTRYPOINT ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["python", "server.py"]

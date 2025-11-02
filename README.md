@@ -58,18 +58,21 @@ The provided compose stack builds the PhaseID container, starts PostgreSQL, and 
 # Build images and start database
 docker compose up -d db
 
-# Load COD data (run once or when the dataset changes)
-docker compose run --rm cod-loader --truncate
+# Start the PhaseID API
+docker compose up -d phaseid-api
 
-# Run the analysis CLI inside the container (override entrypoint)
-docker compose run --rm phaseid python main.py --input-file /app/quartz_10003.xy --metadata instrument_id=demo
+# Load COD data (run once or when the dataset changes)
+docker compose --profile loader run --rm cod-loader --truncate
+
+# Run the analysis CLI inside the API image (override entrypoint)
+docker compose run --rm phaseid-api python main.py --input-file /app/quartz_10003.xy --metadata instrument_id=demo
 ```
 
 Container services:
 
 - `db`: PostgreSQL 15 with persistent volume `postgres-data`.
-- `phaseid`: FastAPI MCP server (default route `/analyze`) built from the analysis toolkit.
-- `cod-loader`: One-shot job invoking `scripts/load_cod.py` to populate `cod_entries`.
+- `phaseid-api`: FastAPI MCP server (default route `/analyze`) built from the analysis toolkit.
+- `cod-loader`: Optional (profile `loader`) one-shot job invoking `scripts/load_cod.py` to populate `cod_entries`.
 
 See `docs/database.md` for more details on the schema and environment variables.
 
@@ -98,6 +101,20 @@ curl -X POST http://localhost:8000/analyze \
 ```
 
 The response mirrors the CLI JSON payload (`files`, `phase_summary`, `database_connected`). Override the phase library or output directory using the request fields `phase_library` and `output_dir`. The service honours the same environment variables for database connectivity and will continue gracefully if PostgreSQL is unavailable.
+
+### Environment Variables
+
+PhaseID honours several environment variables so the container can be customised without editing code:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | PostgreSQL connection used for COD enrichment | `None` (disabled when unset) |
+| `OUTPUT_DIR` | Root directory for generated artefacts | `outputs/` |
+| `INPUT_ROOT` | Base directory for resolving relative `input_files` paths supplied to the API | Current working directory |
+| `PHASE_LIBRARY_PATH` | Path to the phase reference JSON library | `config/reference_phases.json` |
+| `APP_HOST`, `APP_PORT` | FastAPI bind host/port when running `server.py` | `0.0.0.0`, `8000` |
+
+`docker-compose.yml` sets sane defaults (`/app` for `INPUT_ROOT`, `/outputs` for `OUTPUT_DIR`, and publishes `${PHASEID_PORT:-8000}`).
 
 ## XY File Specification
 
