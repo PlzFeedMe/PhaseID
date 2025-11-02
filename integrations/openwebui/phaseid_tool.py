@@ -78,8 +78,12 @@ class PhaseIDInput(BaseModel):
 class PhaseIDTool(Tool):
     name = "phaseid_analyze"
     description = (
-        "Run mineral phase identification via the PhaseID REST API. "
-        "Returns JSON describing validation, extracted peaks, phase candidates, and COD matches."
+        "Analyse X-Y diffraction spectra with the PhaseID service. "
+        "Call with `input_files` (paths visible to the API container) and any known metadata such as "
+        "`instrument_id`, `sample_id`, `x_unit`, `acquisition_datetime`. Optional arguments include "
+        "`phase_library`, `runtime_overrides`, `output_dir`, `show_plot`, and `save_plot`. The tool returns "
+        "structured JSON containing validation results, detected peaks, ranked phase candidates, and COD "
+        "database matches plus a roll-up summary."
     )
     args_schema = PhaseIDInput
 
