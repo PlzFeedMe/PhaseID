@@ -14,7 +14,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 import requests
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, field_validator
 
 try:
     from open_webui.tools.tool import Tool  # type: ignore
@@ -68,11 +68,11 @@ class PhaseIDInput(BaseModel):
         default=False, description="Request the API to persist diagnostic plots alongside JSON outputs."
     )
 
-    @root_validator
-    def check_files(cls, values: Dict[str, Any]) -> Dict[str, Any]:  # pylint: disable=no-self-argument
-        if not values.get("input_files"):
+    @field_validator("input_files")
+    def check_files(cls, value: List[str]) -> List[str]:  # pylint: disable=no-self-argument
+        if not value:
             raise ValueError("input_files must contain at least one path")
-        return values
+        return value
 
 
 class PhaseIDTool(Tool):
@@ -109,9 +109,25 @@ class PhaseIDTool(Tool):
         return json.dumps(data, indent=2)
 
 
-# Convenience factory used by Open WebUI when auto-discovering tool modules.
+class Tools:
+    """Container class used by Open WebUI to discover available tools."""
+
+    def __init__(self) -> None:
+        self._tools: List[Tool] = [PhaseIDTool()]
+
+    def __iter__(self):  # pragma: no cover - simple iterator
+        return iter(self._tools)
+
+    def __len__(self) -> int:  # pragma: no cover - simple len
+        return len(self._tools)
+
+    def __getitem__(self, index: int) -> Tool:  # pragma: no cover - simple access
+        return self._tools[index]
+
+
+# Convenience factory used by some Open WebUI versions when auto-discovering tool modules.
 
 def get_tools() -> List[Tool]:
     """Return instantiated tool(s) for Open WebUI auto-discovery."""
 
-    return [PhaseIDTool()]
+    return list(Tools())
