@@ -1,0 +1,113 @@
+# PhaseID — Mineral Phase Identification Toolkit
+
+PhaseID ingests XY diffraction spectra, extracts diagnostic features, and ranks likely mineral phases using a configurable reference library. It can optionally enrich results with metadata sourced from a PostgreSQL database populated from the Crystallography Open Database (COD). The project is designed to be deployed as an MCP-compatible container or operated locally via the CLI.
+
+## Features
+
+- Validates XY input files against the documented schema and captures machine-readable validation reports.
+- Performs baseline correction, smoothing, and peak detection to derive descriptive features from spectra.
+- Scores phase candidates using a reference peak library (`config/reference_phases.json`) that can be overridden at runtime.
+- Integrates with PostgreSQL to surface matching COD entries for the best phase candidates.
+- Ships docker-compose orchestration that builds the analysis container, starts PostgreSQL, and provides a one-shot loader for the COD dataset.
+
+## Requirements
+
+- Python 3.11 (for local execution).
+- `pip install -r requirements.txt` (numpy, pandas, psycopg2-binary).
+- Docker 20+ and Docker Compose v2 for container-based workflows.
+
+## Repository Layout
+
+```
+.
+├── main.py                # CLI entrypoint and core analysis logic
+├── config/reference_phases.json
+├── docs/
+│   ├── xy_format.md       # XY file specification and metadata contract
+│   └── database.md        # Database integration details
+├── scripts/load_cod.py    # COD -> PostgreSQL loader utility
+├── db_raw/                # (ignored) folder containing COD SQLite dump(s)
+└── docker-compose.yml     # Orchestration for app + PostgreSQL + data loader
+```
+
+## Quick Start (Local CLI)
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. (Optional) Set database environment variables if you want COD enrichment:
+   ```bash
+   export DATABASE_HOST=localhost
+   export DATABASE_PORT=5432
+   export DATABASE_NAME=phaseid
+   export DATABASE_USER=phaseid
+   export DATABASE_PASSWORD=phaseid
+   ```
+3. Run the analyser on a single file:
+   ```bash
+   python main.py --input-file quartz_10003.xy --metadata instrument_id=demo --metadata sample_id=sample-001
+   ```
+   The command writes JSON artefacts to `outputs/` and prints a consolidated JSON payload to stdout.
+
+## Container Workflow
+
+The provided compose stack builds the PhaseID container, starts PostgreSQL, and runs a loader job for the COD dataset located in `db_raw/`.
+
+```bash
+# Build images and start database
+docker compose up -d db
+
+# Load COD data (run once or when the dataset changes)
+docker compose run --rm cod-loader --truncate
+
+# Run the analysis container (example using a mounted file)
+docker compose run --rm phaseid --input-file /app/quartz_10003.xy --metadata instrument_id=demo
+```
+
+Container services:
+
+- `db`: PostgreSQL 15 with persistent volume `postgres-data`.
+- `phaseid`: Analysis container (entrypoint `python main.py`).
+- `cod-loader`: One-shot job invoking `scripts/load_cod.py` to populate `cod_entries`.
+
+See `docs/database.md` for more details on the schema and environment variables.
+
+## XY File Specification
+
+Refer to `docs/xy_format.md` for the full contract, including column requirements, metadata expectations, and sidecar naming conventions (`<stem>.meta.json`). The CLI automatically merges global overrides (`--metadata`, `--metadata-file`) with per-file sidecars and defaults `sample_id` to the file stem.
+
+## Configuration
+
+- **Phase Library**: Override the default reference peaks with `--phase-library /path/to/custom.json`.
+- **Metadata Overrides**: Supply repeated `--metadata KEY=VALUE` flags or a JSON map via `--metadata-file`.
+- **Runtime Config**: Pass additional MCP or pipeline settings via `--runtime-config`.
+- **Plots**: Enable diagnostic plots with `--save-plot` (always saved) or `--show-plot` (interactive, requires `matplotlib` inside the environment).
+
+## Database Loader Script
+
+The loader accepts several flags (see `scripts/load_cod.py --help`):
+
+```
+--sqlite-path PATH      # Path to COD SQLite dump (default compose mount: /app/db_raw/cod2205.sq)
+--chunk-size 1000       # Batch size for transfers
+--table-name cod_entries
+--truncate              # Clear the table before loading
+```
+
+Environment variables are shared with the main app (`DATABASE_*`). The script performs upserts so repeated runs keep the table in sync.
+
+## Outputs
+
+Each processed file produces:
+
+- `<stem>_validation.json`: Validation summary of the input data and metadata.
+- `<stem>_analysis.json`: Feature extraction results, top phase candidates, and COD matches.
+- Optional `<stem>_diagnostic.png` if `--save-plot` was used.
+- Aggregate JSON printed to stdout summarising all files and roll-ups per detected phase (including referenced COD entries when available).
+
+## Development Notes
+
+- Compose automatically builds the project; re-run `docker compose build` after code changes.
+- COD datasets are large and ignored by git (.gitignore); ensure `db_raw/` contains the required `.sq` dump before running the loader.
+- The CLI is MCP-ready: command-line options expose runtime configurations that can be driven by an MCP server or orchestration layer.

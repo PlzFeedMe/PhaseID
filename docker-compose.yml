@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: phaseid-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-phaseid}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-phaseid}
+      POSTGRES_DB: ${POSTGRES_DB:-phaseid}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER:-phaseid} -d ${POSTGRES_DB:-phaseid}"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  phaseid:
+    build: .
+    container_name: phaseid-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${POSTGRES_DB:-phaseid}
+      DATABASE_USER: ${POSTGRES_USER:-phaseid}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phaseid}
+    volumes:
+      - ./config:/app/config:ro
+      - ./docs:/app/docs:ro
+      - ./outputs:/outputs
+    command: ["--help"]
+
+  cod-loader:
+    build: .
+    container_name: phaseid-cod-loader
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${POSTGRES_DB:-phaseid}
+      DATABASE_USER: ${POSTGRES_USER:-phaseid}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phaseid}
+    volumes:
+      - ./db_raw:/app/db_raw:ro
+    entrypoint: ["python", "scripts/load_cod.py"]
+    command:
+      [
+        "--sqlite-path",
+        "/app/db_raw/cod2205.sq",
+        "--chunk-size",
+        "1000"
+      ]
+
+volumes:
+  postgres-data:
