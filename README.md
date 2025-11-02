@@ -78,7 +78,7 @@ See `docs/database.md` for more details on the schema and environment variables.
 
 ## MCP Server / HTTP API
 
-The PhaseID container starts a FastAPI service on port `8000` by default. Health and analysis endpoints:
+The PhaseID container starts a FastAPI service on port `8010` by default. Health and analysis endpoints:
 
 - `GET /health` → `{ "status": "ok" }`
 - `POST /analyze` → run phase identification.
@@ -86,7 +86,7 @@ The PhaseID container starts a FastAPI service on port `8000` by default. Health
 Example request (inside the compose project):
 
 ```bash
-curl -X POST http://localhost:8000/analyze \
+curl -X POST http://localhost:8010/analyze \
   -H "Content-Type: application/json" \
   -d '{
         "input_files": ["/app/quartz_10003.xy"],
@@ -109,7 +109,7 @@ An Open WebUI-compatible tool wrapper is included at `integrations/openwebui/pha
 1. Copy the file into your Open WebUI instance under `data/tools/phaseid_tool.py` (or another path that is scanned for tools).
 2. Restart Open WebUI so it discovers the new tool; it appears as `phaseid_analyze`.
 3. Configure the following environment variables (or edit the wrapper) so the tool knows how to reach the API:
-   - `PHASEID_API_URL` (e.g., `http://phaseid-api:8000`)
+   - `PHASEID_API_URL` (e.g., `http://phaseid-api:8010`)
    - `PHASEID_API_TIMEOUT` (seconds, optional)
 4. Within Open WebUI, grant the tool to the model/agent that should run analyses. The tool accepts the same payload as the HTTP API (`input_files`, `metadata`, `runtime_overrides`, etc.) and returns the JSON response as a formatted string for downstream reasoning.
 
@@ -125,9 +125,9 @@ PhaseID honours several environment variables so the container can be customised
 | `OUTPUT_DIR` | Root directory for generated artefacts | `outputs/` |
 | `INPUT_ROOT` | Base directory for resolving relative `input_files` paths supplied to the API | Current working directory |
 | `PHASE_LIBRARY_PATH` | Path to the phase reference JSON library | `config/reference_phases.json` |
-| `APP_HOST`, `APP_PORT` | FastAPI bind host/port when running `server.py` | `0.0.0.0`, `8000` |
+| `APP_HOST`, `APP_PORT` | FastAPI bind host/port when running `server.py` | `0.0.0.0`, `8010` |
 
-`docker-compose.yml` sets sane defaults (`/app` for `INPUT_ROOT`, `/outputs` for `OUTPUT_DIR`, and publishes `${PHASEID_PORT:-8000}`).
+`docker-compose.yml` sets sane defaults (`/app` for `INPUT_ROOT`, `/outputs` for `OUTPUT_DIR`, and publishes `${PHASEID_PORT:-8010}`).
 
 ## XY File Specification
 

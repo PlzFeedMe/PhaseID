@@ -40,13 +40,13 @@ services:
       INPUT_ROOT: /app
       PHASE_LIBRARY_PATH: /app/config/reference_phases.json
       APP_HOST: 0.0.0.0
-      APP_PORT: 8000
+      APP_PORT: 8010
     volumes:
       - ./config:/app/config:ro
       - ./docs:/app/docs:ro
       - ./outputs:/outputs
     ports:
-      - "${PHASEID_PORT:-8000}:8000"
+      - "${PHASEID_PORT:-8010}:8010"
 
   cod-loader:
     image: ${PHASEID_IMAGE:-phaseid/app:latest}

@@ -14,6 +14,6 @@ ENV OUTPUT_DIR=/outputs
 
 RUN mkdir -p ${OUTPUT_DIR}
 
-EXPOSE 8000
+EXPOSE 8010
 
 ENTRYPOINT ["python", "server.py"]

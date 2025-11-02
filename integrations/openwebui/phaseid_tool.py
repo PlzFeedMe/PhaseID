@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - fallback for local testing
             raise NotImplementedError
 
 
-DEFAULT_API_URL = os.getenv("PHASEID_API_URL", "http://phaseid-api:8000")
+DEFAULT_API_URL = os.getenv("PHASEID_API_URL", "http://phaseid-api:8010")
 DEFAULT_TIMEOUT = float(os.getenv("PHASEID_API_TIMEOUT", "120"))
 
 

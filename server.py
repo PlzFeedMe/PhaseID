@@ -87,5 +87,5 @@ if __name__ == "__main__":  # pragma: no cover - manual launch
     import uvicorn
 
     host = os.getenv("APP_HOST", os.getenv("HOST", "0.0.0.0"))
-    port = int(os.getenv("APP_PORT", os.getenv("PORT", "8000")))
+    port = int(os.getenv("APP_PORT", os.getenv("PORT", "8010")))
     uvicorn.run("server:app", host=host, port=port, log_level="info")
