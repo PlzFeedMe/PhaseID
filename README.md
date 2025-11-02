@@ -102,6 +102,19 @@ curl -X POST http://localhost:8000/analyze \
 
 The response mirrors the CLI JSON payload (`files`, `phase_summary`, `database_connected`). Override the phase library or output directory using the request fields `phase_library` and `output_dir`. The service honours the same environment variables for database connectivity and will continue gracefully if PostgreSQL is unavailable.
 
+### Open WebUI Tool Wrapper
+
+An Open WebUI-compatible tool wrapper is included at `integrations/openwebui/phaseid_tool.py`. To enable it:
+
+1. Copy the file into your Open WebUI instance under `data/tools/phaseid_tool.py` (or another path that is scanned for tools).
+2. Restart Open WebUI so it discovers the new tool; it appears as `phaseid_analyze`.
+3. Configure the following environment variables (or edit the wrapper) so the tool knows how to reach the API:
+   - `PHASEID_API_URL` (e.g., `http://phaseid-api:8000`)
+   - `PHASEID_API_TIMEOUT` (seconds, optional)
+4. Within Open WebUI, grant the tool to the model/agent that should run analyses. The tool accepts the same payload as the HTTP API (`input_files`, `metadata`, `runtime_overrides`, etc.) and returns the JSON response as a formatted string for downstream reasoning.
+
+The wrapper uses the standard Open WebUI `Tool` interface, so it works with both LLM function-calling providers and prompt-tooling workflows.
+
 ### Environment Variables
 
 PhaseID honours several environment variables so the container can be customised without editing code:
