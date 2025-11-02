@@ -61,17 +61,43 @@ docker compose up -d db
 # Load COD data (run once or when the dataset changes)
 docker compose run --rm cod-loader --truncate
 
-# Run the analysis container (example using a mounted file)
-docker compose run --rm phaseid --input-file /app/quartz_10003.xy --metadata instrument_id=demo
+# Run the analysis CLI inside the container (override entrypoint)
+docker compose run --rm phaseid python main.py --input-file /app/quartz_10003.xy --metadata instrument_id=demo
 ```
 
 Container services:
 
 - `db`: PostgreSQL 15 with persistent volume `postgres-data`.
-- `phaseid`: Analysis container (entrypoint `python main.py`).
+- `phaseid`: FastAPI MCP server (default route `/analyze`) built from the analysis toolkit.
 - `cod-loader`: One-shot job invoking `scripts/load_cod.py` to populate `cod_entries`.
 
 See `docs/database.md` for more details on the schema and environment variables.
+
+## MCP Server / HTTP API
+
+The PhaseID container starts a FastAPI service on port `8000` by default. Health and analysis endpoints:
+
+- `GET /health` → `{ "status": "ok" }`
+- `POST /analyze` → run phase identification.
+
+Example request (inside the compose project):
+
+```bash
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+        "input_files": ["/app/quartz_10003.xy"],
+        "metadata": {
+          "instrument_id": "demo",
+          "sample_id": "sample-001",
+          "x_unit": "degrees",
+          "acquisition_datetime": "2024-01-01T00:00:00Z"
+        },
+        "save_plot": true
+      }'
+```
+
+The response mirrors the CLI JSON payload (`files`, `phase_summary`, `database_connected`). Override the phase library or output directory using the request fields `phase_library` and `output_dir`. The service honours the same environment variables for database connectivity and will continue gracefully if PostgreSQL is unavailable.
 
 ## XY File Specification
 
@@ -96,6 +122,16 @@ The loader accepts several flags (see `scripts/load_cod.py --help`):
 ```
 
 Environment variables are shared with the main app (`DATABASE_*`). The script performs upserts so repeated runs keep the table in sync.
+
+## Testing
+
+Unit and integration tests use Python’s standard library (`unittest`). Run them with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+CLI integration tests stub heavy dependencies, so they run quickly without requiring numpy/pandas or a live database.
 
 ## Outputs
 

@@ -507,6 +507,43 @@ def fetch_database_matches(
     ]
 
 
+def calculate_quality_boost(matches: List[Dict[str, object]]) -> float:
+    quality_weights = {
+        "A": 0.2,
+        "B": 0.1,
+        "C": 0.05,
+    }
+    best = 0.0
+    for match in matches:
+        quality = (match.get("quality") or "").strip().upper()[:1]
+        best = max(best, quality_weights.get(quality, 0.0))
+    return best
+
+
+def apply_database_support(analysis: Dict[str, object], matches: List[Dict[str, object]]) -> float:
+    if not matches:
+        return 0.0
+    phase_candidates: List[Dict[str, object]] = analysis.get("phase_candidates", [])
+    if not phase_candidates:
+        return 0.0
+
+    boost = calculate_quality_boost(matches)
+    top_candidate = dict(phase_candidates[0])
+    original_confidence = float(top_candidate.get("confidence", 0.0))
+    top_candidate["database_matches"] = matches
+    top_candidate["quality_boost"] = boost
+    top_candidate["confidence_adjusted"] = min(1.0, original_confidence + boost)
+    top_candidate["confidence_original"] = original_confidence
+
+    phase_candidates[0] = top_candidate
+    analysis["phase_candidates"] = phase_candidates
+    phase_scores: List[Dict[str, object]] = analysis.get("phase_scores", [])
+    if phase_scores:
+        phase_scores[0] = top_candidate
+    analysis["top_phase"] = top_candidate
+    return boost
+
+
 def analyze_signal(
     xy_data: pd.DataFrame,
     phase_library: List[PhasePattern],
@@ -600,6 +637,7 @@ def process_file(
     xy_data = validation.to_dataframe()
     analysis, features = analyze_signal(xy_data, phase_library)
     db_matches = fetch_database_matches(db_connection, analysis["top_phase"])
+    quality_boost = apply_database_support(analysis, db_matches)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     figure_path = render_diagnostic_plot(
@@ -611,6 +649,9 @@ def process_file(
         show_plot=show_plot,
         save_plot=save_plot,
     )
+
+    analysis["database_matches"] = db_matches
+    analysis["quality_boost"] = quality_boost
 
     validation_path = output_dir / f"{file_path.stem}_validation.json"
     with validation_path.open("w", encoding="utf-8") as handle:
@@ -628,10 +669,137 @@ def process_file(
         "phase_candidates": analysis["phase_candidates"],
         "top_phase": analysis["top_phase"],
         "database_matches": db_matches,
+        "quality_boost": quality_boost,
         "metadata": metadata,
         "runtime_overrides": runtime_overrides,
         "row_count": validation.row_count,
     }
+
+
+def build_phase_summary(run_results: List[Dict[str, object]]) -> Dict[str, object]:
+    phase_rollup: Dict[str, Dict[str, object]] = {}
+    database_hits = 0
+
+    for result in run_results:
+        top_candidate = result.get("top_phase")
+        if result.get("database_matches"):
+            database_hits += 1
+        if not top_candidate:
+            continue
+
+        name = top_candidate.get("name", "Unknown")
+        entry = phase_rollup.setdefault(
+            name,
+            {
+                "formula": top_candidate.get("formula"),
+                "detections": 0,
+                "files": [],
+                "database_entries": [],
+                "max_quality_boost": 0.0,
+            },
+        )
+
+        entry["detections"] = int(entry["detections"]) + 1
+        entry["max_quality_boost"] = max(entry["max_quality_boost"], float(result.get("quality_boost", 0.0)))
+
+        entry["files"].append(
+            {
+                "file": result.get("file"),
+                "confidence": top_candidate.get("confidence"),
+                "confidence_adjusted": top_candidate.get("confidence_adjusted", top_candidate.get("confidence")),
+                "quality_boost": result.get("quality_boost", 0.0),
+                "matched_peaks": top_candidate.get("matched_peaks"),
+            }
+        )
+
+        database_matches = result.get("database_matches") or []
+        if database_matches:
+            for match in database_matches:
+                entry_id = match.get("entry_id")
+                existing_entries: List[Dict[str, object]] = entry["database_entries"]
+                if entry_id is not None and any(existing.get("entry_id") == entry_id for existing in existing_entries):
+                    continue
+                entry["database_entries"].append(
+                    {
+                        "entry_id": entry_id,
+                        "mineral_name": match.get("mineral_name"),
+                        "chemical_formula": match.get("chemical_formula"),
+                        "space_group": match.get("space_group"),
+                        "quality": match.get("quality"),
+                    }
+                )
+
+    return {
+        "total_files": len(run_results),
+        "detected_phases": phase_rollup,
+        "database_hits": database_hits,
+    }
+
+
+def run_analysis(
+    input_files: List[Path],
+    output_dir: Path,
+    metadata_overrides: Dict[str, str],
+    runtime_overrides: Dict[str, object],
+    phase_library_path: Optional[Path] = None,
+    show_plot: bool = False,
+    save_plot: bool = False,
+) -> Dict[str, object]:
+    if not input_files:
+        raise ValueError("No XY files provided for analysis.")
+
+    output_dir = Path(output_dir)
+
+    ensure_analysis_dependencies()
+    phase_library = load_phase_library(phase_library_path)
+    logger.info("Loaded %d reference phases.", len(phase_library))
+    db_connection = connect_database()
+
+    run_results: List[Dict[str, object]] = []
+    try:
+        for file_path in input_files:
+            file_metadata = load_metadata_for_file(file_path, metadata_overrides)
+            result = process_file(
+                file_path,
+                output_dir,
+                show_plot,
+                save_plot,
+                file_metadata,
+                runtime_overrides,
+                phase_library,
+                db_connection,
+            )
+            run_results.append(result)
+
+        summary = build_phase_summary(run_results)
+        logger.info("Processed %d file(s).", len(run_results))
+        for result in run_results:
+            top_candidate = result.get("top_phase")
+            top_label = top_candidate.get("name") if top_candidate else "Unknown"
+            confidence = 0.0
+            if top_candidate:
+                confidence = float(top_candidate.get("confidence_adjusted", top_candidate.get("confidence", 0.0)))
+            logger.info(
+                "Outputs for %s -> top_phase=%s (confidence=%.2f), analysis=%s, validation=%s, figure=%s",
+                result.get("file"),
+                top_label,
+                confidence,
+                result.get("analysis_path"),
+                result.get("validation_path"),
+                result.get("figure_path"),
+            )
+
+        return {
+            "files": run_results,
+            "phase_summary": summary,
+            "database_connected": db_connection is not None,
+        }
+    finally:
+        if db_connection is not None:
+            try:
+                db_connection.close()
+            except Exception:
+                logger.debug("Ignoring error while closing database connection.", exc_info=True)
 
 
 def main():
@@ -651,89 +819,17 @@ def main():
     if not input_files:
         raise FileNotFoundError("No XY files found to process.")
 
-    ensure_analysis_dependencies()
-    phase_library = load_phase_library(args.phase_library)
-    logger.info("Loaded %d reference phases.", len(phase_library))
-    db_connection = connect_database()
+    output = run_analysis(
+        input_files=input_files,
+        output_dir=args.output_dir,
+        metadata_overrides=metadata_overrides,
+        runtime_overrides=runtime_overrides,
+        phase_library_path=args.phase_library,
+        show_plot=args.show_plot,
+        save_plot=args.save_plot,
+    )
 
-    run_results = []
-    for file_path in input_files:
-        file_metadata = load_metadata_for_file(file_path, metadata_overrides)
-        result = process_file(
-            file_path,
-            args.output_dir,
-            args.show_plot,
-            args.save_plot,
-            file_metadata,
-            runtime_overrides,
-            phase_library,
-            db_connection,
-        )
-        run_results.append(result)
-
-    logger.info("Processed %d file(s).", len(input_files))
-    for result in run_results:
-        top_candidate = result["top_phase"]
-        top_label = top_candidate["name"] if top_candidate else "Unknown"
-        confidence = top_candidate["confidence"] if top_candidate else 0.0
-        logger.info(
-            "Outputs for %s -> top_phase=%s (confidence=%.2f), analysis=%s, validation=%s, figure=%s",
-            result["file"],
-            top_label,
-            confidence,
-            result["analysis_path"],
-            result["validation_path"],
-            result["figure_path"],
-        )
-
-    phase_rollup: Dict[str, Dict[str, object]] = {}
-    for result in run_results:
-        top_candidate = result["top_phase"]
-        if not top_candidate:
-            continue
-        name = top_candidate["name"]
-        rollup_entry = phase_rollup.setdefault(
-            name,
-            {
-                "formula": top_candidate.get("formula"),
-                "detections": 0,
-                "files": [],
-                "database_entries": [],
-            },
-        )
-        rollup_entry["detections"] = int(rollup_entry["detections"]) + 1
-        rollup_entry["files"].append(
-            {
-                "file": result["file"],
-                "confidence": top_candidate.get("confidence"),
-                "matched_peaks": top_candidate.get("matched_peaks"),
-            }
-        )
-        if result["database_matches"]:
-            rollup_entry["database_entries"].extend(
-                {
-                    "entry_id": match.get("entry_id"),
-                    "mineral_name": match.get("mineral_name"),
-                    "chemical_formula": match.get("chemical_formula"),
-                    "quality": match.get("quality"),
-                }
-                for match in result["database_matches"]
-            )
-
-    summary = {
-        "files": run_results,
-        "phase_summary": {
-            "total_files": len(run_results),
-            "detected_phases": phase_rollup,
-        },
-    }
-    print(json.dumps(summary, indent=2))
-
-    if db_connection is not None:
-        try:
-            db_connection.close()
-        except Exception:
-            logger.debug("Ignoring error while closing database connection.", exc_info=True)
+    print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":

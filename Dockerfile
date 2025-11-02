@@ -10,5 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENTRYPOINT ["python", "main.py"]
-CMD ["--help"]
+ENV OUTPUT_DIR=/outputs
+
+RUN mkdir -p ${OUTPUT_DIR}
+
+EXPOSE 8000
+
+ENTRYPOINT ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

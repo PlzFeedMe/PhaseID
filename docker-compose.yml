@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:15-alpine
@@ -33,11 +35,13 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-phaseid}
       DATABASE_USER: ${POSTGRES_USER:-phaseid}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-phaseid}
+      OUTPUT_DIR: /outputs
     volumes:
       - ./config:/app/config:ro
       - ./docs:/app/docs:ro
       - ./outputs:/outputs
-    command: ["--help"]
+    ports:
+      - "${PHASEID_PORT:-8000}:8000"
 
   cod-loader:
     build: .
